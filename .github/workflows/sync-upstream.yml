@@ -135,7 +135,7 @@ jobs:
           if git diff --quiet && git diff --cached --quiet; then
             echo "编译后无变化，跳过提交。"
           else
-            git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh
+            git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh skills/
             git commit -m "chore(sync): rebuild dist and sync plugin version to v${{ steps.version-sync.outputs.version }}" -m "[skip ci] 由 Sync Upstream 工作流自动生成。"
             echo "已提交编译产物。"
           fi

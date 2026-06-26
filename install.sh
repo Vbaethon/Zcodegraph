@@ -89,6 +89,12 @@ cp "$PLUGIN_SRC/.zcode-plugin/plugin.json" "$ZCODE_PLUGIN_CACHE/.zcode-plugin/pl
 cp "$PLUGIN_SRC/.zcode-plugin-seed.json" "$ZCODE_PLUGIN_CACHE/.zcode-plugin-seed.json"
 cp "$PLUGIN_SRC/dist/mcp/server.js" "$ZCODE_PLUGIN_CACHE/dist/mcp/server.js"
 
+# 复制技能文件（如果存在）
+if [ -d "$PLUGIN_SRC/skills" ]; then
+    mkdir -p "$ZCODE_PLUGIN_CACHE/skills"
+    cp -r "$PLUGIN_SRC/skills/"* "$ZCODE_PLUGIN_CACHE/skills/"
+fi
+
 echo "      ✓ 插件文件已复制到 ZCode 缓存目录"
 
 # ─── 第 4 步：注册到 ZCode ─────────────────────────────────

@@ -6,6 +6,7 @@
         "name": "Venti"
     },
     "license": "MIT",
+    "skills": "skills",
     "mcpServers": {
         "zcodegraph": {
             "command": "/Applications/ZCode.app/Contents/Frameworks/ZCode Helper.app/Contents/MacOS/ZCode Helper",
