@@ -1,21 +1,20 @@
 name: Sync Upstream
 
-# Automatically syncs upstream (colbymchenry/codegraph) changes into this fork.
-# Runs on a schedule (daily) and can be triggered manually.
+# 自动从上游 colbymchenry/codegraph 同步更新到本 fork。
+# 每天定时运行 + 支持手动触发。
 #
-# Merge strategy: `git merge upstream/main` — preserves the fork's own commits
-# (e.g. the ZCode target) while pulling in upstream changes. If a merge conflict
-# occurs, the workflow fails gracefully and creates a GitHub Issue so a human
-# can resolve it.
+# 流程：
+#   git merge upstream/main → npm ci → npm run build → 同步插件版本号 → commit + push
+# 冲突时自动创建 GitHub Issue，通知手动解决。
 
 on:
   schedule:
-    # Every day at 06:00 UTC.
+    # 每天 06:00 UTC（北京时间 14:00）
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       upstream-ref:
-        description: 'Upstream branch/tag/SHA to sync from (default: main)'
+        description: '要同步的上游分支/tag/SHA（默认: main）'
         required: false
         default: 'main'
 
@@ -27,24 +26,25 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout fork
+      - name: 检出代码
         uses: actions/checkout@v6
         with:
           ref: main
-          token: ${{ secrets.SYNC_PAT || secrets.RELEASE_PAT || github.token }}
+          # SYNC_PAT 是用户自行设置的 PAT，用于绕过分支保护
+          token: ${{ secrets.SYNC_PAT || github.token }}
           fetch-depth: 0
 
-      - name: Configure git
+      - name: 配置 git
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream remote
+      - name: 添加上游仓库
         run: |
           git remote add upstream https://github.com/colbymchenry/codegraph.git
           git fetch upstream
 
-      - name: Check for new upstream commits
+      - name: 检查上游是否有新提交
         id: check
         run: |
           UPSTREAM_REF="upstream/${{ inputs.upstream-ref || 'main' }}"
@@ -53,55 +53,55 @@ jobs:
 
           echo "merge-base: $BASE"
           echo "upstream-head: $UPSTREAM_HEAD"
-          echo "our-head: $(git rev-parse HEAD)"
+          echo "our-head:     $(git rev-parse HEAD)"
 
           if [ "$BASE" = "$UPSTREAM_HEAD" ]; then
-            echo "Already up to date."
+            echo "已经是最新，无需同步。"
             echo "needs-sync=false" >> "$GITHUB_OUTPUT"
           else
             echo "needs-sync=true" >> "$GITHUB_OUTPUT"
             echo "upstream-head=$UPSTREAM_HEAD" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge upstream/main
+      - name: 合并上游更新
         if: steps.check.outputs.needs-sync == 'true'
         id: merge
         run: |
           UPSTREAM_REF="upstream/${{ inputs.upstream-ref || 'main' }}"
 
-          echo "::group::Upstream commits to merge"
+          echo "::group::待合并的上游提交"
           git log --oneline HEAD.."$UPSTREAM_REF"
           echo "::endgroup::"
 
           if git merge --no-edit --log "$UPSTREAM_REF"; then
-            echo "Merge succeeded."
+            echo "合并成功。"
             echo "merged=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Merge conflict detected."
+            echo "发现合并冲突！"
             echo "merged=false" >> "$GITHUB_OUTPUT"
             git merge --abort
           fi
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         if: steps.merge.outputs.merged == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      - name: Install dependencies and rebuild
+      - name: 安装依赖并编译
         if: steps.merge.outputs.merged == 'true'
         run: |
           npm ci
           npm run build
 
-      - name: Sync plugin version with upstream
+      - name: 同步插件版本号
         if: steps.merge.outputs.merged == 'true'
         id: version-sync
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          echo "Upstream version: $PKG_VERSION"
+          echo "上游版本: $PKG_VERSION"
 
-          # Update plugin.json version
+          # 更新 plugin.json 版本
           PLUGIN_JSON=".zcode-plugin/plugin.json"
           if [ -f "$PLUGIN_JSON" ]; then
             node -e "
@@ -110,10 +110,10 @@ jobs:
               p.version = '$PKG_VERSION';
               fs.writeFileSync('$PLUGIN_JSON', JSON.stringify(p, null, 4) + '\n');
             "
-            echo "Updated $PLUGIN_JSON → $PKG_VERSION"
+            echo "已更新 $PLUGIN_JSON → $PKG_VERSION"
           fi
 
-          # Update .zcode-plugin-seed.json version
+          # 更新 .zcode-plugin-seed.json 版本
           SEED_JSON=".zcode-plugin-seed.json"
           if [ -f "$SEED_JSON" ]; then
             node -e "
@@ -122,30 +122,29 @@ jobs:
               s.pluginVersion = '$PKG_VERSION';
               fs.writeFileSync('$SEED_JSON', JSON.stringify(s, null, 4) + '\n');
             "
-            echo "Updated $SEED_JSON → $PKG_VERSION"
+            echo "已更新 $SEED_JSON → $PKG_VERSION"
           fi
 
           echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Commit rebuild artifacts
+      - name: 提交编译产物
         if: steps.merge.outputs.merged == 'true'
         run: |
-          # Check if anything changed (dist rebuild, version sync, etc.)
           if git diff --quiet && git diff --cached --quiet; then
-            echo "No changes to commit after rebuild."
+            echo "编译后无变化，跳过提交。"
           else
-            git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json
-            git commit -m "chore(sync): rebuild dist and sync plugin version to v${{ steps.version-sync.outputs.version }}" -m "[skip ci] Auto-generated by Sync Upstream workflow."
-            echo "Committed rebuild artifacts."
+            git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh
+            git commit -m "chore(sync): rebuild dist and sync plugin version to v${{ steps.version-sync.outputs.version }}" -m "[skip ci] 由 Sync Upstream 工作流自动生成。"
+            echo "已提交编译产物。"
           fi
 
-      - name: Push merged result
+      - name: 推送到 GitHub
         if: steps.merge.outputs.merged == 'true'
         run: |
           git push origin HEAD:main
-          echo "✅ Upstream changes synced, rebuilt, and pushed to origin/main."
+          echo "✅ 上游更新已同步、编译并推送到 origin/main。"
 
-      - name: Report merge conflict
+      - name: 报告合并冲突
         if: steps.merge.outputs.merged == 'false'
         uses: actions/github-script@v7
         with:
@@ -154,7 +153,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Check if an open issue for this conflict already exists.
+            // 检查是否已有相同的冲突 Issue
             const { data: existing } = await github.rest.issues.listForRepo({
               owner,
               repo,
@@ -163,37 +162,40 @@ jobs:
             });
 
             if (existing.length > 0) {
-              console.log('Issue #' + existing[0].number + ' already open — skipping duplicate.');
+              console.log('已存在 Issue #' + existing[0].number + '，跳过重复创建。');
               return;
             }
 
-            const title = '⚠️ Merge conflict syncing upstream (' + upstreamHead + ')';
+            const title = '⚠️ 合并上游时发现冲突 (' + upstreamHead + ')';
             const body = [
-              'Upstream `colbymchenry/codegraph` has new commits that **conflict** with this fork\'s changes.',
+              '上游 `colbymchenry/codegraph` 的新提交与 Zcodegraph fork 的自定义修改产生了**冲突**。',
               '',
-              '## What happened',
+              '## 发生了什么',
               '',
-              'The daily sync workflow tried to `git merge upstream/main` but hit a merge conflict.',
-              'This means upstream changed some of the same files this fork has modified (e.g. the ZCode installer target).',
+              '每日同步工作流执行 `git merge upstream/main` 时遇到合并冲突。',
+              '这意味着上游修改了 Zcodegraph fork 也修改过的文件',
+              '（例如 ZCode installer target、插件文件等）。',
               '',
-              '## How to resolve',
+              '## 如何解决',
               '',
               '```bash',
-              'cd /path/to/Zcodegraph',
+              'cd Zcodegraph',
               'git fetch upstream',
               'git merge upstream/main',
-              '# Resolve conflicts manually, then:',
+              '# 手动解决冲突后：',
               'git push origin main',
               '```',
               '',
-              '## Upstream commits since last sync',
+              '## 查看待合并的上游提交',
               '',
-              'Run `git log HEAD..upstream/main --oneline` to see what changed.',
+              '```bash',
+              'git log HEAD..upstream/main --oneline',
+              '```',
               '',
               '---',
               '',
-              '🤖 Auto-created by the [Sync Upstream workflow](' +
-                'https://github.com/' + owner + '/' + repo + '/actions/workflows/sync-upstream.yml).',
+              '🤖 由 [Sync Upstream 工作流](' +
+                'https://github.com/' + owner + '/' + repo + '/actions/workflows/sync-upstream.yml) 自动创建。',
             ].join('\n');
 
             await github.rest.issues.create({
@@ -203,8 +205,8 @@ jobs:
               body,
               labels: ['upstream-sync'],
             });
-            console.log('Created conflict-report issue.');
+            console.log('已创建冲突报告 Issue。');
 
-      - name: No-op (already up to date)
+      - name: 无需同步
         if: steps.check.outputs.needs-sync == 'false'
-        run: echo "✅ Fork is already in sync with upstream."
+        run: echo "✅ Fork 已经与上游保持一致。"
