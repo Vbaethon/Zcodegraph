@@ -70,8 +70,9 @@ echo "      ✓ 插件源: $PLUGIN_SRC"
 # ─── 第 3 步：安装插件到 ZCode ─────────────────────────────
 echo "[3/4] 安装插件到 ZCode..."
 
-# 读取插件版本
-VERSION=$(node -p "require('$PLUGIN_SRC/.zcode-plugin/plugin.json').version" 2>/dev/null || echo "1.1.1")
+# 读取插件版本（从 plugin.json 中提取，不依赖 node）
+VERSION=$(grep '"version"' "$PLUGIN_SRC/.zcode-plugin/plugin.json" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+[ -n "$VERSION" ] || VERSION="1.1.1"
 
 # ZCode 目录
 ZCODE_PLUGIN_CACHE="$HOME/.zcode/cli/plugins/cache/zcode-plugins-official/zcodegraph/$VERSION"
@@ -97,28 +98,55 @@ echo "[4/4] 注册插件到 ZCode..."
 mkdir -p "$(dirname "$ZCODE_MARKETPLACE")"
 
 if [ -f "$ZCODE_MARKETPLACE" ]; then
-    node -e "
-        var fs = require('fs');
-        var m = JSON.parse(fs.readFileSync('$ZCODE_MARKETPLACE', 'utf-8'));
-
-        // 检查是否已注册
-        var exists = m.plugins.find(function(p) { return p.name === 'zcodegraph'; });
-        if (exists) {
-            exists.version = '$VERSION';
-            exists.cachePath = '$ZCODE_PLUGIN_CACHE';
-            console.log('      已更新 marketplace 中的 zcodegraph 条目');
-        } else {
-            m.plugins.push({
-                cachePath: '$ZCODE_PLUGIN_CACHE',
-                name: 'zcodegraph',
-                source: 'filesystem',
-                version: '$VERSION'
-            });
-            console.log('      已添加 zcodegraph 到 marketplace');
-        }
-
-        fs.writeFileSync('$ZCODE_MARKETPLACE', JSON.stringify(m, null, 2) + '\n');
-    "
+    # 用 python3 或 ruby 或 node 来编辑 JSON（优先用系统自带的）
+    if command -v python3 &>/dev/null; then
+        python3 -c "
+import json, sys
+with open('$ZCODE_MARKETPLACE') as f:
+    m = json.load(f)
+found = False
+for p in m['plugins']:
+    if p['name'] == 'zcodegraph':
+        p['version'] = '$VERSION'
+        p['cachePath'] = '$ZCODE_PLUGIN_CACHE'
+        found = True
+        print('      已更新 marketplace 中的 zcodegraph 条目')
+        break
+if not found:
+    m['plugins'].append({
+        'cachePath': '$ZCODE_PLUGIN_CACHE',
+        'name': 'zcodegraph',
+        'source': 'filesystem',
+        'version': '$VERSION'
+    })
+    print('      已添加 zcodegraph 到 marketplace')
+with open('$ZCODE_MARKETPLACE', 'w') as f:
+    json.dump(m, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+"
+    elif command -v ruby &>/dev/null; then
+        ruby -e "
+require 'json'
+m = JSON.parse(File.read('$ZCODE_MARKETPLACE'))
+found = m['plugins'].find { |p| p['name'] == 'zcodegraph' }
+if found
+  found['version'] = '$VERSION'
+  found['cachePath'] = '$ZCODE_PLUGIN_CACHE'
+  puts '      已更新 marketplace 中的 zcodegraph 条目'
+else
+  m['plugins'] << {
+    'cachePath' => '$ZCODE_PLUGIN_CACHE',
+    'name' => 'zcodegraph',
+    'source' => 'filesystem',
+    'version' => '$VERSION'
+  }
+  puts '      已添加 zcodegraph 到 marketplace'
+end
+File.write('$ZCODE_MARKETPLACE', JSON.pretty_generate(m) + \"\n\")
+"
+    else
+        echo "      ⚠ 无法编辑 marketplace.json（需要 python3 或 ruby），请手动添加"
+    fi
     echo "      ✓ 已注册到 ZCode 插件市场"
 else
     echo "      ⚠ 未找到 marketplace.json，跳过注册（首次使用 ZCode 后会自动生成）"
