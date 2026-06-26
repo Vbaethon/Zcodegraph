@@ -1,0 +1,24 @@
+{
+    "name": "zcodegraph",
+    "version": "1.1.1",
+    "description": "CodeGraph MCP 集成 — 为 ZCode 提供语义化代码图谱能力。通过 tree-sitter 解析代码库，将符号、依赖关系、调用链存储在 SQLite 中，让 AI 代理用更少的 token 精准理解项目结构。",
+    "author": {
+        "name": "Venti"
+    },
+    "license": "MIT",
+    "mcpServers": {
+        "codegraph": {
+            "command": "/Applications/ZCode.app/Contents/Frameworks/ZCode Helper.app/Contents/MacOS/ZCode Helper",
+            "args": [
+                "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
+                "__zcode-plugin-host",
+                "${ZCODE_PLUGIN_ROOT}/dist/mcp/server.js"
+            ],
+            "cwd": "${ZCODE_PROJECT_DIR}",
+            "env": {
+                "ELECTRON_RUN_AS_NODE": "1",
+                "CODEGRAPH_PROJECT_DIR": "${ZCODE_PROJECT_DIR}"
+            }
+        }
+    }
+}
