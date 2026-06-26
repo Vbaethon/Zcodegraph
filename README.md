@@ -31,22 +31,34 @@ curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install
 
 > 💡 这一步只需要做一次。它会装一个叫 `codegraph` 的命令到你电脑上。
 
-### 第 2 步：在 ZCode 里安装 Zcodegraph 插件
+### 第 2 步：安装 Zcodegraph 插件到 ZCode
 
 **方式一：一键安装（推荐）**
 
-仍在终端里，输入：
+在终端中粘贴这一行：
 
 ```bash
-codegraph install --target zcode -y
+curl -fsSL https://raw.githubusercontent.com/Vbaethon/Zcodegraph/main/install.sh | bash
 ```
+
+脚本会自动完成：
+1. 检查 `codegraph` 是否已安装（没有的话自动装）
+2. 下载 Zcodegraph 插件文件
+3. 把插件复制到 ZCode 的插件目录
+4. 注册到 ZCode 插件市场
 
 **方式二：手动安装**
 
-1. 打开 ZCode
-2. 进入 **设置 → 插件**
-3. 在插件市场搜索 `zcodegraph`
-4. 点击安装
+```bash
+# 克隆仓库
+git clone https://github.com/Vbaethon/Zcodegraph.git
+cd Zcodegraph
+
+# 运行安装脚本
+bash install.sh
+```
+
+> ⚠️ **安装完成后，必须完全退出并重启 ZCode**，插件才会生效。
 
 ---
 
