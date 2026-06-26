@@ -7,7 +7,7 @@
     },
     "license": "MIT",
     "mcpServers": {
-        "codegraph": {
+        "zcodegraph": {
             "command": "/Applications/ZCode.app/Contents/Frameworks/ZCode Helper.app/Contents/MacOS/ZCode Helper",
             "args": [
                 "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
