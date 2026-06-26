@@ -1,8 +1,10 @@
 name: Sync Upstream
 
-# 自动从上游 colbymchenry/codegraph 同步更新到本 fork。
-# 每天定时运行 + 支持手动触发。
+# 自动从上游 colbymchenry/codegraph 同步到本 fork。
+# 每天 06:00 UTC 运行 + 支持手动触发。
 #
+# 流程：merge → npm build → 同步插件版本号 → commit → push
+# 冲突时自动创建 Issue 通知。
 # 流程：
 #   git merge upstream/main → npm ci → npm run build → 同步插件版本号 → commit + push
 # 冲突时自动创建 GitHub Issue，通知手动解决。

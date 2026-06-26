@@ -74,10 +74,10 @@ echo "[3/4] 安装插件到 ZCode..."
 VERSION=$(grep '"version"' "$PLUGIN_SRC/.zcode-plugin/plugin.json" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 [ -n "$VERSION" ] || VERSION="1.1.1"
 
-# ZCode 目录（第三方插件，独立 marketplace）
-ZCODE_PLUGIN_CACHE="$HOME/.zcode/cli/plugins/cache/zcodegraph/zcodegraph/$VERSION"
-ZCODE_PLUGIN_DATA="$HOME/.zcode/cli/plugins/data/zcodegraph@zcodegraph"
-ZCODE_MARKETPLACE="$HOME/.zcode/cli/plugins/marketplaces/zcodegraph/marketplace.json"
+# ZCode 目录（所有插件统一注册在官方 marketplace，source:filesystem 表示本地第三方）
+ZCODE_PLUGIN_CACHE="$HOME/.zcode/cli/plugins/cache/zcode-plugins-official/zcodegraph/$VERSION"
+ZCODE_PLUGIN_DATA="$HOME/.zcode/cli/plugins/data/zcodegraph@zcode-plugins-official"
+ZCODE_MARKETPLACE="$HOME/.zcode/cli/plugins/marketplaces/zcode-plugins-official/marketplace.json"
 
 # 创建目录
 mkdir -p "$ZCODE_PLUGIN_CACHE/.zcode-plugin"
