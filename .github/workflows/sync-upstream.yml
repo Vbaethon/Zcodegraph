@@ -1,0 +1,153 @@
+name: Sync Upstream
+
+# Automatically syncs upstream (colbymchenry/codegraph) changes into this fork.
+# Runs on a schedule (daily) and can be triggered manually.
+#
+# Merge strategy: `git merge upstream/main` — preserves the fork's own commits
+# (e.g. the ZCode target) while pulling in upstream changes. If a merge conflict
+# occurs, the workflow fails gracefully and creates a GitHub Issue so a human
+# can resolve it.
+
+on:
+  schedule:
+    # Every day at 06:00 UTC.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream-ref:
+        description: 'Upstream branch/tag/SHA to sync from (default: main)'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.SYNC_PAT || secrets.RELEASE_PAT || github.token }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/colbymchenry/codegraph.git
+          git fetch upstream
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          UPSTREAM_REF="upstream/${{ inputs.upstream-ref || 'main' }}"
+          BASE=$(git merge-base HEAD "$UPSTREAM_REF")
+          UPSTREAM_HEAD=$(git rev-parse "$UPSTREAM_REF")
+
+          echo "merge-base: $BASE"
+          echo "upstream-head: $UPSTREAM_HEAD"
+          echo "our-head: $(git rev-parse HEAD)"
+
+          if [ "$BASE" = "$UPSTREAM_HEAD" ]; then
+            echo "Already up to date."
+            echo "needs-sync=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs-sync=true" >> "$GITHUB_OUTPUT"
+            echo "upstream-head=$UPSTREAM_HEAD" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream/main
+        if: steps.check.outputs.needs-sync == 'true'
+        id: merge
+        run: |
+          UPSTREAM_REF="upstream/${{ inputs.upstream-ref || 'main' }}"
+
+          echo "::group::Upstream commits to merge"
+          git log --oneline HEAD.."$UPSTREAM_REF"
+          echo "::endgroup::"
+
+          if git merge --no-edit --log "$UPSTREAM_REF"; then
+            echo "Merge succeeded."
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Merge conflict detected."
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            git merge --abort
+          fi
+
+      - name: Push merged result
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          git push origin HEAD:main
+          echo "✅ Upstream changes synced and pushed to origin/main."
+
+      - name: Report merge conflict
+        if: steps.merge.outputs.merged == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstreamHead = '${{ steps.check.outputs.upstream-head }}'.substring(0, 7);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Check if an open issue for this conflict already exists.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              labels: ['upstream-sync'],
+            });
+
+            if (existing.length > 0) {
+              console.log('Issue #' + existing[0].number + ' already open — skipping duplicate.');
+              return;
+            }
+
+            const title = '⚠️ Merge conflict syncing upstream (' + upstreamHead + ')';
+            const body = [
+              'Upstream `colbymchenry/codegraph` has new commits that **conflict** with this fork\'s changes.',
+              '',
+              '## What happened',
+              '',
+              'The daily sync workflow tried to `git merge upstream/main` but hit a merge conflict.',
+              'This means upstream changed some of the same files this fork has modified (e.g. the ZCode installer target).',
+              '',
+              '## How to resolve',
+              '',
+              '```bash',
+              'cd /path/to/Zcodegraph',
+              'git fetch upstream',
+              'git merge upstream/main',
+              '# Resolve conflicts manually, then:',
+              'git push origin main',
+              '```',
+              '',
+              '## Upstream commits since last sync',
+              '',
+              'Run `git log HEAD..upstream/main --oneline` to see what changed.',
+              '',
+              '---',
+              '',
+              '🤖 Auto-created by the [Sync Upstream workflow](' +
+                'https://github.com/' + owner + '/' + repo + '/actions/workflows/sync-upstream.yml).',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: ['upstream-sync'],
+            });
+            console.log('Created conflict-report issue.');
+
+      - name: No-op (already up to date)
+        if: steps.check.outputs.needs-sync == 'false'
+        run: echo "✅ Fork is already in sync with upstream."
