@@ -3,11 +3,18 @@ name: Sync Upstream
 # 自动从上游 colbymchenry/codegraph 同步到本 fork。
 # 每天 06:00 UTC 运行 + 支持手动触发。
 #
-# 流程：merge → npm build → 同步插件版本号 → commit → push
-# 冲突时自动创建 Issue 通知。
 # 流程：
-#   git merge upstream/main → npm ci → npm run build → 同步插件版本号 → commit + push
-# 冲突时自动创建 GitHub Issue，通知手动解决。
+#   git merge upstream/main（自动解决冲突）
+#   → ensure-zcode-files.sh（确保 ZCode 文件完整）
+#   → npm ci → npm run build
+#   → 同步插件版本号
+#   → commit + push
+#
+# 冲突策略：
+#   - README.md → 始终保留 ZCode 中文版
+#   - install.sh → 始终保留 ZCode 版本
+#   - registry.ts / types.ts → 保留 ZCode 版 + 脚本自动修复
+#   - 其他冲突 → 保留 ZCode 版 + 日志告警
 
 on:
   schedule:
@@ -22,11 +29,11 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -65,7 +72,7 @@ jobs:
             echo "upstream-head=$UPSTREAM_HEAD" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 合并上游更新
+      - name: 合并上游更新（自动解决冲突）
         if: steps.check.outputs.needs-sync == 'true'
         id: merge
         run: |
@@ -75,14 +82,48 @@ jobs:
           git log --oneline HEAD.."$UPSTREAM_REF"
           echo "::endgroup::"
 
-          if git merge --no-edit --log "$UPSTREAM_REF"; then
-            echo "合并成功。"
-            echo "merged=true" >> "$GITHUB_OUTPUT"
+          # 尝试合并（不自动提交）
+          if git merge --no-commit --no-ff "$UPSTREAM_REF" 2>/dev/null; then
+            echo "✅ 无冲突合并成功。"
           else
-            echo "发现合并冲突！"
-            echo "merged=false" >> "$GITHUB_OUTPUT"
-            git merge --abort
+            echo "::warning::发现合并冲突，自动解决中..."
+
+            # README.md → 始终保留 ZCode 中文版
+            if git ls-files --unmerged | grep -q "README.md"; then
+              git checkout --ours README.md && git add README.md
+              echo "  ✅ README.md → 保留 ZCode 版本"
+            fi
+
+            # install.sh → 始终保留 ZCode 版本
+            if git ls-files --unmerged | grep -q "install.sh"; then
+              git checkout --ours install.sh && git add install.sh
+              echo "  ✅ install.sh → 保留 ZCode 版本"
+            fi
+
+            # 其他冲突文件 → 全部保留 ZCode 版本
+            REMAINING=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+            if [ -n "$REMAINING" ]; then
+              echo "$REMAINING" | while read -r f; do
+                git checkout --ours "$f" && git add "$f"
+                echo "  ⚠️  $f → 保留 ZCode 版本（建议复查）"
+              done
+            fi
           fi
+
+          # 运行 ZCode 文件完整性检查脚本
+          echo "::group::ZCode 文件完整性检查"
+          bash scripts/ensure-zcode-files.sh
+          echo "::endgroup::"
+
+          # 提交合并（如果有未提交的变更）
+          if git diff --cached --quiet; then
+            echo "合并后无变更，跳过提交。"
+          else
+            git commit -m "chore(sync): merge upstream/main" -m "自动合入上游更新。冲突已自动解决（ZCode 版本优先）。"
+            echo "✅ 合并已提交。"
+          fi
+
+          echo "merged=true" >> "$GITHUB_OUTPUT"
 
       - name: 安装 Node.js
         if: steps.merge.outputs.merged == 'true'
@@ -132,10 +173,11 @@ jobs:
       - name: 提交编译产物
         if: steps.merge.outputs.merged == 'true'
         run: |
-          if git diff --quiet && git diff --cached --quiet; then
+          git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh skills/ scripts/
+          
+          if git diff --cached --quiet; then
             echo "编译后无变化，跳过提交。"
           else
-            git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh skills/
             git commit -m "chore(sync): rebuild dist and sync plugin version to v${{ steps.version-sync.outputs.version }}" -m "[skip ci] 由 Sync Upstream 工作流自动生成。"
             echo "已提交编译产物。"
           fi
@@ -145,69 +187,6 @@ jobs:
         run: |
           git push origin HEAD:main
           echo "✅ 上游更新已同步、编译并推送到 origin/main。"
-
-      - name: 报告合并冲突
-        if: steps.merge.outputs.merged == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const upstreamHead = '${{ steps.check.outputs.upstream-head }}'.substring(0, 7);
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            // 检查是否已有相同的冲突 Issue
-            const { data: existing } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open',
-              labels: ['upstream-sync'],
-            });
-
-            if (existing.length > 0) {
-              console.log('已存在 Issue #' + existing[0].number + '，跳过重复创建。');
-              return;
-            }
-
-            const title = '⚠️ 合并上游时发现冲突 (' + upstreamHead + ')';
-            const body = [
-              '上游 `colbymchenry/codegraph` 的新提交与 Zcodegraph fork 的自定义修改产生了**冲突**。',
-              '',
-              '## 发生了什么',
-              '',
-              '每日同步工作流执行 `git merge upstream/main` 时遇到合并冲突。',
-              '这意味着上游修改了 Zcodegraph fork 也修改过的文件',
-              '（例如 ZCode installer target、插件文件等）。',
-              '',
-              '## 如何解决',
-              '',
-              '```bash',
-              'cd Zcodegraph',
-              'git fetch upstream',
-              'git merge upstream/main',
-              '# 手动解决冲突后：',
-              'git push origin main',
-              '```',
-              '',
-              '## 查看待合并的上游提交',
-              '',
-              '```bash',
-              'git log HEAD..upstream/main --oneline',
-              '```',
-              '',
-              '---',
-              '',
-              '🤖 由 [Sync Upstream 工作流](' +
-                'https://github.com/' + owner + '/' + repo + '/actions/workflows/sync-upstream.yml) 自动创建。',
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner,
-              repo,
-              title,
-              body,
-              labels: ['upstream-sync'],
-            });
-            console.log('已创建冲突报告 Issue。');
 
       - name: 无需同步
         if: steps.check.outputs.needs-sync == 'false'
