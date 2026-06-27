@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install
 在终端中粘贴这一行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Vbaethon/Zcodegraph/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Vbaethon/Zcodegraph/main/install-plugin.sh | bash
 ```
 
 脚本会自动完成：
@@ -55,7 +55,7 @@ git clone https://github.com/Vbaethon/Zcodegraph.git
 cd Zcodegraph
 
 # 运行安装脚本
-bash install.sh
+bash install-plugin.sh
 ```
 
 > ⚠️ **安装完成后，必须完全退出并重启 ZCode**，插件才会生效。

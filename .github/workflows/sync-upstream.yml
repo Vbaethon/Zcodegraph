@@ -4,16 +4,16 @@ name: Sync Upstream
 # 每天 06:00 UTC 运行 + 支持手动触发。
 #
 # 流程：
-#   git merge upstream/main（自动解决冲突）
-#   → ensure-zcode-files.sh（确保 ZCode 文件完整）
+#   git merge upstream/main（冲突自动解决）
+#   → ensure-zcode-files.sh（补丁模式：上游有的 → 最小补丁，上游没有的 → 确保存在）
 #   → npm ci → npm run build
 #   → 同步插件版本号
 #   → commit + push
 #
 # 冲突策略：
 #   - README.md → 始终保留 ZCode 中文版
-#   - install.sh → 始终保留 ZCode 版本
-#   - registry.ts / types.ts → 保留 ZCode 版 + 脚本自动修复
+#   - registry.ts / types.ts → 保留上游版本 + 脚本自动打补丁
+#   - install.sh → 不再冲突（已重命名为 install-plugin.sh）
 #   - 其他冲突 → 保留 ZCode 版 + 日志告警
 
 on:
@@ -39,7 +39,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: main
-          # SYNC_PAT 是用户自行设置的 PAT，用于绕过分支保护
           token: ${{ secrets.SYNC_PAT || github.token }}
           fetch-depth: 0
 
@@ -91,13 +90,7 @@ jobs:
             # README.md → 始终保留 ZCode 中文版
             if git ls-files --unmerged | grep -q "README.md"; then
               git checkout --ours README.md && git add README.md
-              echo "  ✅ README.md → 保留 ZCode 版本"
-            fi
-
-            # install.sh → 始终保留 ZCode 版本
-            if git ls-files --unmerged | grep -q "install.sh"; then
-              git checkout --ours install.sh && git add install.sh
-              echo "  ✅ install.sh → 保留 ZCode 版本"
+              echo "  ✅ README.md → 保留 ZCode 中文版"
             fi
 
             # 其他冲突文件 → 全部保留 ZCode 版本
@@ -105,13 +98,13 @@ jobs:
             if [ -n "$REMAINING" ]; then
               echo "$REMAINING" | while read -r f; do
                 git checkout --ours "$f" && git add "$f"
-                echo "  ⚠️  $f → 保留 ZCode 版本（建议复查）"
+                echo "  ⚠️  $f → 保留 ZCode 版本（后续脚本会打补丁）"
               done
             fi
           fi
 
-          # 运行 ZCode 文件完整性检查脚本
-          echo "::group::ZCode 文件完整性检查"
+          # 运行 ZCode 补丁脚本（确保 registry.ts / types.ts 有 ZCode 条目）
+          echo "::group::ZCode 补丁检查"
           bash scripts/ensure-zcode-files.sh
           echo "::endgroup::"
 
@@ -119,7 +112,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "合并后无变更，跳过提交。"
           else
-            git commit -m "chore(sync): merge upstream/main" -m "自动合入上游更新。冲突已自动解决（ZCode 版本优先）。"
+            git commit -m "chore(sync): merge upstream/main" -m "自动合入上游更新。冲突已自动解决，ZCode 补丁已应用。"
             echo "✅ 合并已提交。"
           fi
 
@@ -173,8 +166,8 @@ jobs:
       - name: 提交编译产物
         if: steps.merge.outputs.merged == 'true'
         run: |
-          git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install.sh skills/ scripts/
-          
+          git add dist/ .zcode-plugin/plugin.json .zcode-plugin-seed.json install-plugin.sh skills/ scripts/
+
           if git diff --cached --quiet; then
             echo "编译后无变化，跳过提交。"
           else
